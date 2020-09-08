@@ -1,0 +1,54 @@
+name: WebApi_Container_Workflow
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    #checkout the repo
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: 3.1.301
+    - name: Install dependencies
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+      
+    - name: Login in Azure
+      uses: azure/login@v1 
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Create docker image
+      uses: azure/docker-login@v1
+      with:
+        login-server: index.docker.io
+        username: ${{ secrets.REGISTRY_USERNAME }}
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+    - run: |
+        docker login -u ${{ secrets.REGISTRY_USERNAME }} -p ${{ secrets.REGISTRY_PASSWORD }} docker.io
+        docker build . -t lguilen/library-webapi
+        docker push lguilen/library-webapi
+    
+    - name: Deploy to Azure Container Instances
+      uses: azure/aci-deploy@v1
+      with:
+        resource-group: ${{ secrets.AZURE_RESOURCEGROUP }}
+        dns-name-label: library-service
+        image: lguilen/library-webapi
+        registry-login-server: index.docker.io
+        registry-username: ${{ secrets.REGISTRY_USERNAME }}
+        registry-password: ${{ secrets.REGISTRY_PASSWORD }}
+        name: library-webapi
+        secure-environment-variables: COSMOSDB_ACCOUNT=${{ secrets.COSMOSDB_ACCOUNT }} COSMOSDB_KEY=${{ secrets.COSMOSDB_KEY }}
+        location: 'east us'
+        
+    - name: Azure logout
+      run: az logout
+    
